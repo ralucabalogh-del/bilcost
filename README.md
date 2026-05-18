@@ -1,3 +1,0 @@
-# Bilcost
-
-Standalone Bilcost project.

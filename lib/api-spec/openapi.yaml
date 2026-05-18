@@ -1,0 +1,1002 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: Unworn — a marketplace for brand-new, never-worn clothing.
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+  - name: items
+  - name: orders
+  - name: stats
+  - name: bilcost
+    description: Bilcost — Danish new-vs-used car total-cost-of-ownership.
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '200':
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserEnvelope'
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uri
+      responses:
+        '302':
+          description: Redirect.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+        - $ref: '#/components/parameters/SessionCookie'
+      responses:
+        '302':
+          description: Redirect.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileTokenExchangeRequest'
+      responses:
+        '200':
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobileTokenExchangeSuccess'
+        '400':
+          description: Bad request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '500':
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: '#/components/parameters/AuthorizationSessionHeader'
+      responses:
+        '200':
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogoutSuccess'
+
+  /items:
+    get:
+      operationId: listItems
+      tags: [items]
+      summary: List items
+      parameters:
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [available, reserved, sold]
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: sellerId
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+    post:
+      operationId: createItem
+      tags: [items]
+      summary: Create a new item listing (auth required)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemInput"
+      responses:
+        "201":
+          description: Item created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /items/my-listings:
+    get:
+      operationId: listMyItems
+      tags: [items]
+      summary: List items belonging to the current user
+      responses:
+        "200":
+          description: List
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /items/{id}:
+    get:
+      operationId: getItem
+      tags: [items]
+      summary: Get an item by id
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    patch:
+      operationId: updateItem
+      tags: [items]
+      summary: Update an item (only owner)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ItemUpdate"
+      responses:
+        "200":
+          description: Updated item
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Item"
+    delete:
+      operationId: deleteItem
+      tags: [items]
+      summary: Delete an item (only owner)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  /orders:
+    get:
+      operationId: listOrders
+      tags: [orders]
+      summary: List orders for the current user (as buyer)
+      responses:
+        "200":
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+    post:
+      operationId: createOrder
+      tags: [orders]
+      summary: Place an order (checkout)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderInput"
+      responses:
+        "201":
+          description: Order created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Order"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /orders/sales:
+    get:
+      operationId: listSales
+      tags: [orders]
+      summary: List orders where the current user is the seller
+      responses:
+        "200":
+          description: Sales
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Order"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /stats/marketplace:
+    get:
+      operationId: getMarketplaceStats
+      tags: [stats]
+      summary: Marketplace-wide stats for the homepage
+      responses:
+        "200":
+          description: Marketplace stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MarketplaceStats"
+
+  /stats/categories:
+    get:
+      operationId: getCategoryBreakdown
+      tags: [stats]
+      summary: Item counts grouped by category
+      responses:
+        "200":
+          description: Category breakdown
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CategoryCount"
+
+  /stats/featured:
+    get:
+      operationId: getFeaturedItems
+      tags: [stats]
+      summary: Featured / newest items for the homepage
+      responses:
+        "200":
+          description: Featured items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Item"
+
+  /stats/recent-activity:
+    get:
+      operationId: getRecentActivity
+      tags: [stats]
+      summary: Recent activity feed across the marketplace
+      responses:
+        "200":
+          description: Recent activity
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActivityEntry"
+
+  /stats/my-dashboard:
+    get:
+      operationId: getMyDashboard
+      tags: [stats]
+      summary: Personal dashboard summary for the current user
+      responses:
+        "200":
+          description: My dashboard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MyDashboard"
+        "401":
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /bilcost/search:
+    get:
+      operationId: bilcostSearchListings
+      tags: [bilcost]
+      summary: Search Bilbasen-style listings (curated catalog in v1)
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+        - name: make
+          in: query
+          required: false
+          schema: { type: string }
+        - name: model
+          in: query
+          required: false
+          schema: { type: string }
+        - name: isNew
+          in: query
+          required: false
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: Listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BilcostListingPreview"
+
+  /bilcost/listing:
+    get:
+      operationId: bilcostGetListing
+      tags: [bilcost]
+      summary: Resolve a Bilbasen listing URL or catalog id into a Car
+      parameters:
+        - name: urlOrId
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Car
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BilcostCar"
+        "400":
+          description: Could not resolve listing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+  /bilcost/assumptions/defaults:
+    get:
+      operationId: bilcostGetDefaultAssumptions
+      tags: [bilcost]
+      summary: Default Danish assumptions for the calculator
+      responses:
+        "200":
+          description: Defaults
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BilcostAssumptions"
+
+  /bilcost/compare:
+    post:
+      operationId: bilcostCompareCars
+      tags: [bilcost]
+      summary: Compute side-by-side TCO for two cars
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BilcostCompareInput"
+      responses:
+        "200":
+          description: Comparison
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BilcostComparison"
+        "400":
+          description: Invalid input
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+
+components:
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: Opaque session token — `Bearer <sid>`.
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, 'null']
+          format: email
+        firstName:
+          type: [string, 'null']
+        lastName:
+          type: [string, 'null']
+        profileImageUrl:
+          type: [string, 'null']
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: '#/components/schemas/AuthUser'
+            - type: 'null'
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+          format: uri
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    Seller:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+        firstName:
+          type: ["string", "null"]
+        lastName:
+          type: ["string", "null"]
+        profileImageUrl:
+          type: ["string", "null"]
+
+    Item:
+      type: object
+      required:
+        - id
+        - sellerId
+        - seller
+        - title
+        - description
+        - brand
+        - category
+        - size
+        - color
+        - condition
+        - priceDkk
+        - status
+        - images
+        - tags
+        - createdAt
+      properties:
+        id:
+          type: integer
+        sellerId:
+          type: string
+        seller:
+          $ref: "#/components/schemas/Seller"
+        title:
+          type: string
+        description:
+          type: string
+        brand:
+          type: string
+        category:
+          type: string
+          description: e.g. "Outerwear", "Tops", "Bottoms", "Shoes", "Accessories"
+        size:
+          type: string
+        color:
+          type: string
+        condition:
+          type: string
+          enum: [new_with_tags, new_without_tags]
+        priceDkk:
+          type: integer
+        originalPriceDkk:
+          type: ["integer", "null"]
+        status:
+          type: string
+          enum: [available, reserved, sold]
+        images:
+          type: array
+          items:
+            type: string
+        tags:
+          type: array
+          items:
+            type: string
+        location:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    ItemInput:
+      type: object
+      required:
+        - title
+        - description
+        - brand
+        - category
+        - size
+        - color
+        - condition
+        - priceDkk
+        - images
+      properties:
+        title: { type: string, minLength: 1 }
+        description: { type: string }
+        brand: { type: string }
+        category: { type: string }
+        size: { type: string }
+        color: { type: string }
+        condition:
+          type: string
+          enum: [new_with_tags, new_without_tags]
+        priceDkk: { type: integer, minimum: 0 }
+        originalPriceDkk:
+          type: ["integer", "null"]
+        images:
+          type: array
+          items: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        location:
+          type: ["string", "null"]
+
+    ItemUpdate:
+      type: object
+      properties:
+        title: { type: string }
+        description: { type: string }
+        brand: { type: string }
+        category: { type: string }
+        size: { type: string }
+        color: { type: string }
+        condition:
+          type: string
+          enum: [new_with_tags, new_without_tags]
+        priceDkk: { type: integer, minimum: 0 }
+        originalPriceDkk:
+          type: ["integer", "null"]
+        status:
+          type: string
+          enum: [available, reserved, sold]
+        images:
+          type: array
+          items: { type: string }
+        tags:
+          type: array
+          items: { type: string }
+        location:
+          type: ["string", "null"]
+
+    Order:
+      type: object
+      required: [id, itemId, itemTitle, itemImage, buyerName, buyerEmail, totalDkk, status, createdAt]
+      properties:
+        id: { type: integer }
+        itemId: { type: integer }
+        itemTitle: { type: string }
+        itemImage: { type: string }
+        sellerId:
+          type: ["string", "null"]
+        buyerName: { type: string }
+        buyerEmail: { type: string }
+        buyerAddress:
+          type: ["string", "null"]
+        totalDkk: { type: integer }
+        status:
+          type: string
+          enum: [pending, paid, shipped, completed, cancelled]
+        createdAt:
+          type: string
+          format: date-time
+
+    OrderInput:
+      type: object
+      required: [itemId, buyerName, buyerEmail]
+      properties:
+        itemId: { type: integer }
+        buyerName: { type: string, minLength: 1 }
+        buyerEmail: { type: string, format: email }
+        buyerAddress:
+          type: ["string", "null"]
+
+    MarketplaceStats:
+      type: object
+      required: [totalItems, availableItems, soldItems, totalSellers, totalValueDkk]
+      properties:
+        totalItems: { type: integer }
+        availableItems: { type: integer }
+        soldItems: { type: integer }
+        totalSellers: { type: integer }
+        totalValueDkk: { type: integer }
+
+    CategoryCount:
+      type: object
+      required: [category, count]
+      properties:
+        category: { type: string }
+        count: { type: integer }
+        sampleImage:
+          type: ["string", "null"]
+
+    ActivityEntry:
+      type: object
+      required: [kind, at, title]
+      properties:
+        kind:
+          type: string
+          enum: [item_listed, item_sold, order_placed]
+        at:
+          type: string
+          format: date-time
+        title: { type: string }
+        subtitle:
+          type: ["string", "null"]
+        itemId:
+          type: ["integer", "null"]
+        image:
+          type: ["string", "null"]
+
+    MyDashboard:
+      type: object
+      required: [activeListings, soldListings, totalRevenueDkk, ordersPlaced, ordersReceived]
+      properties:
+        activeListings: { type: integer }
+        soldListings: { type: integer }
+        totalRevenueDkk: { type: integer }
+        ordersPlaced: { type: integer }
+        ordersReceived: { type: integer }
+
+    BilcostFuelType:
+      type: string
+      enum: [petrol, diesel, hybrid, phev, electric]
+
+    BilcostTransmission:
+      type: string
+      enum: [manual, automatic, unknown]
+
+    BilcostDriverAgeBand:
+      type: string
+      enum: [under_25, 25_29, 30_49, 50_64, 65_plus]
+
+    BilcostListingPreview:
+      type: object
+      required: [id, make, model, year, mileageKm, priceDkk, fuelType, listingUrl]
+      properties:
+        id: { type: string }
+        make: { type: string }
+        model: { type: string }
+        variant:
+          type: ["string", "null"]
+        year: { type: integer }
+        mileageKm: { type: integer }
+        priceDkk: { type: integer }
+        fuelType:
+          $ref: "#/components/schemas/BilcostFuelType"
+        imageUrl:
+          type: ["string", "null"]
+        listingUrl: { type: string }
+
+    BilcostCar:
+      type: object
+      required:
+        [
+          make,
+          model,
+          year,
+          mileageKm,
+          priceDkk,
+          fuelType,
+          transmission,
+        ]
+      properties:
+        make: { type: string }
+        model: { type: string }
+        variant:
+          type: ["string", "null"]
+        year: { type: integer }
+        mileageKm: { type: integer }
+        priceDkk: { type: integer }
+        fuelType:
+          $ref: "#/components/schemas/BilcostFuelType"
+        consumptionKmPerL:
+          type: ["number", "null"]
+        consumptionKwhPer100km:
+          type: ["number", "null"]
+        co2Gkm:
+          type: ["integer", "null"]
+        kerbWeightKg:
+          type: ["integer", "null"]
+        transmission:
+          $ref: "#/components/schemas/BilcostTransmission"
+        listingUrl:
+          type: ["string", "null"]
+        imageUrl:
+          type: ["string", "null"]
+
+    BilcostAssumptions:
+      type: object
+      required:
+        [
+          yearsHorizon,
+          annualKm,
+          downPaymentDkk,
+          loanInterestPct,
+          loanTermYears,
+          fuelPriceDkkPerLiter,
+          electricityPriceDkkPerKwh,
+          driverAgeBand,
+          postalCode,
+        ]
+      properties:
+        yearsHorizon: { type: integer, minimum: 1, maximum: 15 }
+        annualKm: { type: integer, minimum: 1000, maximum: 80000 }
+        downPaymentDkk: { type: integer, minimum: 0 }
+        loanInterestPct: { type: number, minimum: 0, maximum: 30 }
+        loanTermYears: { type: integer, minimum: 0, maximum: 15 }
+        fuelPriceDkkPerLiter: { type: number, minimum: 0, maximum: 50 }
+        electricityPriceDkkPerKwh: { type: number, minimum: 0, maximum: 20 }
+        insuranceAnnualDkkOverride:
+          type: ["integer", "null"]
+        driverAgeBand:
+          $ref: "#/components/schemas/BilcostDriverAgeBand"
+        postalCode: { type: string }
+
+    BilcostCostComponent:
+      type: object
+      required: [amountDkk, perYearDkk, notes]
+      properties:
+        amountDkk: { type: integer }
+        perYearDkk:
+          type: array
+          items: { type: integer }
+        notes: { type: string }
+
+    BilcostBreakdown:
+      type: object
+      required:
+        [
+          depreciation,
+          financingInterest,
+          insurance,
+          maintenance,
+          fuel,
+          ownershipTax,
+          tiresAndWear,
+          inspection,
+        ]
+      properties:
+        depreciation: { $ref: "#/components/schemas/BilcostCostComponent" }
+        financingInterest: { $ref: "#/components/schemas/BilcostCostComponent" }
+        insurance: { $ref: "#/components/schemas/BilcostCostComponent" }
+        maintenance: { $ref: "#/components/schemas/BilcostCostComponent" }
+        fuel: { $ref: "#/components/schemas/BilcostCostComponent" }
+        ownershipTax: { $ref: "#/components/schemas/BilcostCostComponent" }
+        tiresAndWear: { $ref: "#/components/schemas/BilcostCostComponent" }
+        inspection: { $ref: "#/components/schemas/BilcostCostComponent" }
+
+    BilcostTcoResult:
+      type: object
+      required:
+        [
+          car,
+          assumptions,
+          breakdown,
+          totalDkk,
+          totalPerYearDkk,
+          totalPerKmDkk,
+          residualValueDkk,
+          yearlyCumulativeDkk,
+        ]
+      properties:
+        car: { $ref: "#/components/schemas/BilcostCar" }
+        assumptions: { $ref: "#/components/schemas/BilcostAssumptions" }
+        breakdown: { $ref: "#/components/schemas/BilcostBreakdown" }
+        totalDkk: { type: integer }
+        totalPerYearDkk: { type: integer }
+        totalPerKmDkk: { type: number }
+        residualValueDkk: { type: integer }
+        yearlyCumulativeDkk:
+          type: array
+          items: { type: integer }
+
+    BilcostComparison:
+      type: object
+      required: [carA, carB, deltaDkk]
+      properties:
+        carA: { $ref: "#/components/schemas/BilcostTcoResult" }
+        carB: { $ref: "#/components/schemas/BilcostTcoResult" }
+        deltaDkk: { type: integer }
+
+    BilcostCompareInput:
+      type: object
+      required: [carA, carB, assumptions]
+      properties:
+        carA: { $ref: "#/components/schemas/BilcostCar" }
+        carB: { $ref: "#/components/schemas/BilcostCar" }
+        assumptions: { $ref: "#/components/schemas/BilcostAssumptions" }
